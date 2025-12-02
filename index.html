@@ -55,7 +55,17 @@
          */
         function addToCart(productKey) {
             const messageBox = document.getElementById('cart-message');
-            messageBox.textContent = `成功將 ${productKey === 'single' ? '一盒 10 顆裝' : '產品'} 加入購物車 (模擬操作)。`;
+            let productName = '';
+            
+            if (productKey === 'single') {
+                productName = '一盒 (10 顆) NT$ 110';
+            } else if (productKey === 'bundle') {
+                productName = '五盒 (50 顆) NT$ 500 優惠組';
+            } else {
+                productName = '產品';
+            }
+
+            messageBox.textContent = `成功將 ${productName} 加入購物車 (模擬操作)。`;
             messageBox.className = 'mt-4 p-3 bg-egg-yellow text-gray-900 rounded-lg text-sm font-semibold text-center transition duration-300 opacity-100';
             
             // 訊息顯示 3 秒後消失
@@ -63,6 +73,41 @@
                 messageBox.className = 'mt-4 opacity-0 transition duration-500';
                 messageBox.textContent = '';
             }, 3000);
+        }
+
+        /**
+         * 處理顧客回饋提交 (模擬)
+         */
+        function submitTestimonial(event) {
+            event.preventDefault();
+            const nameInput = document.getElementById('feedback-name');
+            const contentInput = document.getElementById('feedback-content');
+            const messageDiv = document.getElementById('testimonial-message');
+            const submitBtn = document.getElementById('feedback-submit-btn');
+
+            const name = nameInput.value.trim();
+            const content = contentInput.value.trim();
+
+            if (!name || !content) {
+                messageDiv.className = 'mt-4 text-sm font-semibold text-red-500';
+                messageDiv.textContent = '請填寫您的暱稱和回饋內容！';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = '送出中...';
+
+            // 模擬異步提交
+            setTimeout(() => {
+                messageDiv.className = 'mt-4 text-sm font-semibold text-farm-green';
+                messageDiv.textContent = `感謝 ${name}！您的寶貴回饋已經成功收到，我們將盡快審核。`;
+                
+                nameInput.value = '';
+                contentInput.value = '';
+                
+                submitBtn.disabled = false;
+                submitBtn.textContent = '送出回饋';
+            }, 1500);
         }
 
         // --- Gemini API Setup ---
@@ -344,8 +389,8 @@
                         <li>✅ 適用：水煮、煎蛋、烘焙，用途廣泛</li>
                     </ul>
                     
-                    <!-- 價格與購買區域 - 簡化為單一選項 -->
-                    <div class="mt-6">
+                    <!-- 價格與購買區域 - 包含單盒和優惠組 -->
+                    <div class="mt-6 space-y-4">
                         <!-- 產品選項 1: 單盒價格 -->
                         <div class="flex justify-between items-center p-4 border border-farm-green rounded-lg bg-farm-green/5 shadow-inner">
                             <div>
@@ -361,6 +406,26 @@
                                 加入購物車
                             </button>
                         </div>
+
+                        <!-- 產品選項 2: 優惠組價格 (新增促銷欄位) -->
+                        <div class="flex justify-between items-center p-4 border-4 border-egg-yellow rounded-lg bg-egg-yellow/20 shadow-xl relative overflow-hidden">
+                            <!-- 促銷標籤 -->
+                            <div class="absolute top-[-10px] right-[-40px] bg-red-500 text-white text-xs font-bold py-1 px-8 transform rotate-45 shadow-md">
+                                優惠
+                            </div>
+                            <div>
+                                <span class="text-lg font-semibold text-gray-900 block">五盒 (50顆) 優惠組</span>
+                                <span class="text-3xl font-bold text-red-600">NT$ 500</span>
+                            </div>
+                            
+                            <button onclick="addToCart('bundle')" class="bg-red-500 hover:bg-red-600 text-cream-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-150 transform hover:scale-[1.02] active:scale-[0.98] flex items-center whitespace-nowrap">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 2a4 4 0 00-4 4v.172a.5.5 0 00.128.354l.583.583a.5.5 0 00.354.128h6.812a.5.5 0 00.354-.128l.583-.583A.5.5 0 0014 6.172V6a4 4 0 00-4-4zm-6 4a.5.5 0 01.5-.5h11a.5.5 0 01.5.5v1H4V6zm11 3.5a.5.5 0 00-1 0v4.5a.5.5 0 001 0v-4.5zM5 9.5a.5.5 0 00-1 0v4.5a.5.5 0 001 0v-4.5z" clip-rule="evenodd" />
+                                    <path d="M16 16.5a.5.5 0 01-.5.5h-11a.5.5 0 010-1h11a.5.5 0 01.5.5zM15.5 7H4.5A1.5 1.5 0 003 8.5v8A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0015.5 7z" />
+                                </svg>
+                                立即搶購
+                            </button>
+                        </div>
                     </div>
                     
                     <!-- 購物車訊息提示 -->
@@ -368,14 +433,60 @@
 
                 </div>
 
-                <!-- 模擬顧客評價 -->
+                <!-- 模擬顧客評價 - 增加了更多回饋 -->
                 <div class="md:w-1/2 bg-white p-8 rounded-xl shadow-2xl border-t-8 border-farm-green">
                     <h4 class="text-2xl font-bold mb-4 text-egg-yellow">顧客真心推薦</h4>
-                    <blockquote class="italic text-gray-700 leading-relaxed border-l-4 border-egg-yellow pl-4">
-                        「蛋黃真的很濃郁，煎起來香氣十足！小朋友吃了都說讚，感覺吃得很安心，支持在地校園農產品！」
-                    </blockquote>
-                    <p class="mt-4 text-sm font-semibold text-gray-600">- 王太太 (東海教職員家屬)</p>
+                    
+                    <!-- Testimonial 1 (Original) -->
+                    <div class="mb-6 pb-4 border-b border-gray-100">
+                        <blockquote class="italic text-gray-700 leading-relaxed border-l-4 border-egg-yellow pl-4">
+                            「蛋黃真的很濃郁，煎起來香氣十足！小朋友吃了都說讚，感覺吃得很安心，支持在地校園農產品！」
+                        </blockquote>
+                        <p class="mt-2 text-sm font-semibold text-gray-600">- 王太太 (東海教職員家屬)</p>
+                    </div>
+
+                    <!-- Testimonial 2 (New) -->
+                    <div class="mb-6 pb-4 border-b border-gray-100">
+                        <blockquote class="italic text-gray-700 leading-relaxed border-l-4 border-farm-green pl-4">
+                            「聽說雞隻是友善飼養的，特地來購買。實際吃了之後，蛋白很Q彈，新鮮度沒話說，CP值很高！」
+                        </blockquote>
+                        <p class="mt-2 text-sm font-semibold text-gray-600">- 陳同學 (學生)</p>
+                    </div>
+                    
+                    <!-- Testimonial 3 (New) -->
+                    <div>
+                        <blockquote class="italic text-gray-700 leading-relaxed border-l-4 border-egg-yellow pl-4">
+                            「作為烘焙愛好者，東海雞蛋的蛋液打發性很好，做出來的蛋糕和布丁口感特別細緻，是烘焙的秘密武器。」
+                        </blockquote>
+                        <p class="mt-2 text-sm font-semibold text-gray-600">- 李先生 (校友)</p>
+                    </div>
+
                 </div>
+            </div>
+            
+            <!-- 新增：留下您的回饋欄位 (Simulated Submission) -->
+            <div class="mt-12 p-8 bg-white rounded-xl shadow-2xl border-t-8 border-farm-green">
+                <h4 class="text-2xl font-bold mb-4 text-farm-green">🖋️ 留下您的回饋</h4>
+                <p class="text-gray-600 mb-4">您的寶貴意見是我們進步的動力。請分享您對東海牧場動福蛋的體驗。</p>
+                
+                <form onsubmit="submitTestimonial(event)">
+                    <div class="mb-4">
+                        <label for="feedback-name" class="block text-sm font-medium text-gray-700 mb-1">您的暱稱</label>
+                        <input type="text" id="feedback-name" placeholder="王同學 / 李太太" required
+                               class="w-full p-3 rounded-lg border-2 border-gray-300 focus:border-egg-yellow focus:ring-egg-yellow shadow-sm">
+                    </div>
+                    <div class="mb-4">
+                        <label for="feedback-content" class="block text-sm font-medium text-gray-700 mb-1">回饋內容</label>
+                        <textarea id="feedback-content" rows="4" placeholder="請告訴我們您的使用體驗或意見..." required
+                                  class="w-full p-3 rounded-lg border-2 border-gray-300 focus:border-egg-yellow focus:ring-egg-yellow shadow-sm"></textarea>
+                    </div>
+                    <button type="submit" id="feedback-submit-btn"
+                            class="bg-farm-green hover:bg-green-600 text-cream-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-150 transform hover:scale-[1.02] active:scale-[0.98] w-full md:w-auto">
+                        送出回饋
+                    </button>
+                </form>
+
+                <p id="testimonial-message" class="mt-4 text-sm font-semibold text-gray-700">我們將審核您的回饋後，擇優發佈在網站上。感謝您的支持！</p>
             </div>
         </div>
     </section>
