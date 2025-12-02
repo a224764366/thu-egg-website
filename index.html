@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>東海牧場動福蛋 | 東海大學實習農牧場</title>
+    <!-- 載入 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定網頁的預設字體為 Inter */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8F8F8; /* 淺灰色背景 */
+        }
+        .tts-button:active {
+            transform: scale(0.95);
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'egg-yellow': '#FFC700',
+                        'farm-green': '#4CAF50',
+                        'cream-white': '#FFFDF9',
+                    }
+                }
+            }
+        }
+        
+        /**
+         * 處理 Email 訂閱表單的提交 (模擬)
+         */
+        function submitInterestForm() {
+            const emailInput = document.getElementById('interest-email');
+            const messageDiv = document.getElementById('interest-message');
+            const email = emailInput.value.trim();
+
+            // 簡單的 Email 格式檢查
+            if (!email || !email.includes('@') || !email.includes('.')) {
+                messageDiv.className = 'mt-3 text-sm text-red-500';
+                messageDiv.textContent = '請輸入有效的電子郵件地址。';
+                return;
+            }
+
+            // 模擬儲存成功
+            messageDiv.className = 'mt-3 text-sm text-farm-green font-semibold';
+            messageDiv.textContent = `感謝您的訂閱 ( ${email} )！我們將發送最新資訊給您。`;
+            emailInput.value = ''; // 清空輸入欄位
+        }
+
+        /**
+         * 處理加入購物車的點擊 (模擬)
+         */
+        function addToCart(productKey) {
+            const messageBox = document.getElementById('cart-message');
+            messageBox.textContent = `成功將 ${productKey === 'single' ? '一盒 10 顆裝' : '產品'} 加入購物車 (模擬操作)。`;
+            messageBox.className = 'mt-4 p-3 bg-egg-yellow text-gray-900 rounded-lg text-sm font-semibold text-center transition duration-300 opacity-100';
+            
+            // 訊息顯示 3 秒後消失
+            setTimeout(() => {
+                messageBox.className = 'mt-4 opacity-0 transition duration-500';
+                messageBox.textContent = '';
+            }, 3000);
+        }
+
+        // --- Gemini API Setup ---
+        const apiKey = ""; // Canvas will provide this key if empty
+        const RECIPE_MODEL = 'gemini-2.5-flash-preview-09-2025';
+        const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+
+        /**
+         * Converts base64 PCM audio data to a playable WAV Blob.
+         * @param {string} base64Data - Base64 encoded audio data.
+         * @returns {Blob} WAV audio blob.
+         */
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        /**
+         * Converts PCM 16-bit audio data buffer into a WAV file blob.
+         * @param {Int16Array} pcm16 - The PCM data.
+         * @param {number} sampleRate - The sample rate.
+         * @returns {Blob} The WAV Blob.
+         */
+        function pcmToWav(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bytesPerSample = 2; // 16-bit
+            const buffer = pcm16.buffer;
+            const view = new DataView(buffer);
+            
+            // Calculate necessary buffer sizes
+            const dataLength = view.byteLength;
+            const wavSize = 44 + dataLength; // 44 bytes for WAV header
+
+            const arrayBuffer = new ArrayBuffer(wavSize);
+            const dataView = new DataView(arrayBuffer);
+
+            // Write WAV header (44 bytes)
+            // RIFF chunk
+            dataView.setUint32(0, 0x52494646, false); // "RIFF"
+            dataView.setUint32(4, wavSize - 8, true); // ChunkSize
+            dataView.setUint32(8, 0x57415645, false); // "WAVE"
+
+            // FMT sub-chunk
+            dataView.setUint32(12, 0x666d7420, false); // "fmt "
+            dataView.setUint32(16, 16, true);          // Subchunk1Size (16 for PCM)
+            dataView.setUint16(20, 1, true);           // AudioFormat (1 for PCM)
+            dataView.setUint16(22, numChannels, true); // NumChannels
+            dataView.setUint32(24, sampleRate, true);  // SampleRate
+            dataView.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // ByteRate
+            dataView.setUint16(32, numChannels * bytesPerSample, true);              // BlockAlign
+            dataView.setUint16(34, bytesPerSample * 8, true); // BitsPerSample (16)
+
+            // DATA sub-chunk
+            dataView.setUint32(36, 0x64617461, false); // "data"
+            dataView.setUint32(40, dataLength, true);  // Subchunk2Size
+
+            // Write PCM data
+            for (let i = 0; i < pcm16.length; i++) {
+                dataView.setInt16(44 + i * 2, pcm16[i], true);
+            }
+
+            return new Blob([dataView], { type: 'audio/wav' });
+        }
+
+        /**
+         * TTS Generation and Playback
+         */
+        let audioContext = null;
+        let isPlaying = false;
+        
+        async function generateAndPlayTTS() {
+            const button = document.getElementById('tts-button');
+            const originalText = button.textContent;
+            
+            if (isPlaying) {
+                // Stop playback if already playing
+                if (audioContext) {
+                    audioContext.close();
+                    audioContext = null;
+                }
+                isPlaying = false;
+                button.textContent = '🗣️ 聽取產品簡介';
+                button.classList.remove('bg-red-500', 'hover:bg-red-600');
+                button.classList.add('bg-farm-green', 'hover:bg-green-600');
+                return;
+            }
+
+            // Text to be spoken (taken from the description)
+            const textToSpeak = "來自東海大學智慧化蛋雞舍，我們提供符合動物福利標準、嚴格品質控管的新鮮雞蛋。每一顆動福蛋都承載著我們對雞隻健康與食品安全的承諾。";
+            
+            button.textContent = '載入語音中...';
+            button.disabled = true;
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{
+                    parts: [{ text: `用流利的台灣中文，以溫和且清晰的語氣，朗讀以下內容: ${textToSpeak}` }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: "Puck" } // A clear, upbeat voice
+                        }
+                    }
+                }
+            };
+
+            let response;
+            try {
+                response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API returned status ${response.status}`);
+                }
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                    const rateMatch = mimeType.match(/rate=(\d+)/);
+                    const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 16000;
+                    
+                    const pcmData = base64ToArrayBuffer(audioData);
+                    const pcm16 = new Int16Array(pcmData);
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    const audioUrl = URL.createObjectURL(wavBlob);
+
+                    // Play the audio
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                    isPlaying = true;
+                    
+                    button.textContent = '⏹️ 停止播放';
+                    button.classList.remove('bg-farm-green', 'hover:bg-green-600');
+                    button.classList.add('bg-red-500', 'hover:bg-red-600');
+
+                    audio.onended = () => {
+                        isPlaying = false;
+                        button.textContent = originalText;
+                        button.classList.remove('bg-red-500', 'hover:bg-red-600');
+                        button.classList.add('bg-farm-green', 'hover:bg-green-600');
+                        button.disabled = false;
+                    };
+                } else {
+                    throw new Error('Invalid audio data received.');
+                }
+
+            } catch (error) {
+                console.error("TTS Error:", error);
+                alert('語音播放失敗。請檢查您的連線。'); // Using simple alert for error handling as per user preference (not using canvas API)
+                button.textContent = originalText;
+                button.disabled = false;
+            } finally {
+                if (!isPlaying) {
+                    button.disabled = false;
+                }
+            }
+        }
+    </script>
+</head>
+<body class="text-gray-800">
+
+    <!-- 頂部導覽列 (簡單標題) -->
+    <header class="bg-farm-green text-cream-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto p-4 flex justify-between items-center">
+            <!-- 標題：已更新為「東海牧場動福蛋」 -->
+            <h1 class="text-3xl font-bold tracking-wider">東海牧場動福蛋</h1>
+            <nav class="hidden md:flex space-x-6 text-lg">
+                <a href="#intro" class="hover:text-egg-yellow transition duration-300">產品介紹</a>
+                <a href="#features" class="hover:text-egg-yellow transition duration-300">特色優勢</a>
+                <a href="#recipes" class="hover:text-egg-yellow transition duration-300">食譜點子</a>
+                <a href="#contact" class="hover:text-egg-yellow transition duration-300">聯絡我們</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- 01. 封面主視覺區 (Hero Section) -->
+    <section id="intro" class="bg-cream-white py-16 md:py-24">
+        <!-- 容器調整為 max-w-4xl 確保內容不會過寬，並居中對齊 -->
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center">
+            <!-- 文字內容 - 設置為全寬並文字居中 -->
+            <div class="w-full text-center">
+                <!-- 小標題 -->
+                <span class="text-farm-green text-sm uppercase font-semibold tracking-widest block mb-2">東海大學智慧化蛋雞舍</span>
+                
+                <!-- 大標題：已更新為「東海牧場動福蛋」 -->
+                <h2 class="text-5xl md:text-7xl font-extrabold leading-tight mb-6 text-gray-900">
+                    東海牧場動福蛋
+                </h2>
+                
+                <!-- 描述文字：已根據動福蛋更新內容 -->
+                <p class="text-xl text-gray-600 mb-8 max-w-lg mx-auto">
+                    來自東海大學智慧化蛋雞舍，我們提供符合動物福利標準、嚴格品質控管的新鮮雞蛋。每一顆動福蛋都承載著我們對雞隻健康與食品安全的承諾。
+                </p>
+
+                <!-- 語音播放按鈕 -->
+                <button id="tts-button" onclick="generateAndPlayTTS()" 
+                        class="tts-button bg-farm-green hover:bg-green-600 text-cream-white font-bold py-3 px-8 rounded-full shadow-xl transition duration-300 transform mb-8">
+                    🗣️ 聽取產品簡介
+                </button>
+
+
+                <!-- Email 訂閱區塊 -->
+                <div class="mt-8 max-w-md mx-auto">
+                    <p class="text-sm text-gray-700 mb-3 font-medium">輸入信箱，立即獲取最新優惠與校園銷售資訊！</p>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input type="email" id="interest-email" placeholder="您的電子郵件地址" 
+                            class="flex-grow p-3 rounded-lg border-2 border-gray-300 focus:border-farm-green focus:ring-farm-green shadow-md text-gray-800" required>
+                        <button onclick="submitInterestForm()" 
+                                class="bg-egg-yellow hover:bg-yellow-500 text-gray-900 font-bold py-3 px-6 rounded-lg shadow-lg transition duration-300 transform hover:scale-[1.02] active:scale-100 min-w-[120px]">
+                            訂閱通知
+                        </button>
+                    </div>
+                    <p id="interest-message" class="mt-3 text-sm text-gray-600"></p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 02. 特色優勢區 (Features) -->
+    <section id="features" class="bg-white py-16 md:py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h3 class="text-4xl font-extrabold mb-4 text-gray-900">我們的四大承諾</h3>
+            <p class="text-lg text-gray-600 mb-12">東海雞蛋，品質源自於對細節的專注與愛護。</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <!-- 特色 1: 當日現收 -->
+                <div class="p-6 bg-farm-green/10 rounded-xl shadow-lg hover:shadow-xl transition duration-300">
+                    <div class="text-4xl mb-4 text-farm-green">🥚</div> <!-- 雞蛋圖示 -->
+                    <h4 class="text-xl font-bold mb-3">當日現收</h4>
+                    <p class="text-gray-600">雞蛋每日新鮮採集，從農場到您手中，保留最佳賞味期限。</p>
+                </div>
+                <!-- 特色 2: 友善飼養 -->
+                <div class="p-6 bg-farm-green/10 rounded-xl shadow-lg hover:shadow-xl transition duration-300">
+                    <div class="text-4xl mb-4 text-farm-green">🌳</div> <!-- 樹/環境圖示 -->
+                    <h4 class="text-xl font-bold mb-3">友善飼養</h4>
+                    <p class="text-gray-600">雞隻生活在寬敞、舒適的校園實習農場，身心健康，產出的蛋更優質。</p>
+                </div>
+                <!-- 特色 3: 嚴格把關 -->
+                <div class="p-6 bg-farm-green/10 rounded-xl shadow-lg hover:shadow-xl transition duration-300">
+                    <div class="text-4xl mb-4 text-farm-green">🧪</div> <!-- 實驗室圖示 -->
+                    <h4 class="text-xl font-bold mb-3">嚴格把關</h4>
+                    <p class="text-gray-600">定期進行微生物與藥物殘留檢驗，確保每一顆蛋都安全無虞。</p>
+                </div>
+                <!-- 特色 4: 營養滿分 -->
+                <div class="p-6 bg-farm-green/10 rounded-xl shadow-lg hover:shadow-xl transition duration-300">
+                    <div class="text-4xl mb-4 text-farm-green">💪</div> <!-- 肌肉/健康圖示 -->
+                    <h4 class="text-xl font-bold mb-3">營養滿分</h4>
+                    <p class="text-gray-600">蛋黃濃郁飽滿，蛋白Q彈透明，是您與家人健康飲食的最佳選擇。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 03. 產品展示與評價 (Showcase & Testimonial Mock) -->
+    <section class="bg-cream-white py-16 md:py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h3 class="text-4xl font-extrabold text-center mb-12 text-gray-900">產品規格與口碑</h3>
+            
+            <div class="flex flex-col md:flex-row gap-10">
+                <!-- 產品資訊卡片 -->
+                <div class="md:w-1/2 bg-white p-8 rounded-xl shadow-2xl border-t-8 border-egg-yellow">
+                    <h4 class="text-2xl font-bold mb-4 text-farm-green">東海雞蛋（校園特選級）</h4>
+                    <ul class="space-y-3 text-lg text-gray-700">
+                        <li>✅ 規格：每盒 10 顆裝</li>
+                        <li>✅ 等級：洗選特級鮮蛋</li>
+                        <li>✅ 儲存：冷藏可保存 21 天 (建議依包裝標示)</li>
+                        <li>✅ 適用：水煮、煎蛋、烘焙，用途廣泛</li>
+                    </ul>
+                    
+                    <!-- 價格與購買區域 - 簡化為單一選項 -->
+                    <div class="mt-6">
+                        <!-- 產品選項 1: 單盒價格 -->
+                        <div class="flex justify-between items-center p-4 border border-farm-green rounded-lg bg-farm-green/5 shadow-inner">
+                            <div>
+                                <span class="text-lg font-semibold text-gray-900 block">一盒 (10顆)</span>
+                                <span class="text-3xl font-bold text-farm-green">NT$ 110</span>
+                            </div>
+                            
+                            <button onclick="addToCart('single')" class="bg-egg-yellow hover:bg-yellow-500 text-gray-900 font-bold py-3 px-6 rounded-lg shadow-lg transition duration-150 transform hover:scale-[1.02] active:scale-[0.98] flex items-center whitespace-nowrap">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 2a4 4 0 00-4 4v.172a.5.5 0 00.128.354l.583.583a.5.5 0 00.354.128h6.812a.5.5 0 00.354-.128l.583-.583A.5.5 0 0014 6.172V6a4 4 0 00-4-4zm-6 4a.5.5 0 01.5-.5h11a.5.5 0 01.5.5v1H4V6zm11 3.5a.5.5 0 00-1 0v4.5a.5.5 0 001 0v-4.5zM5 9.5a.5.5 0 00-1 0v4.5a.5.5 0 001 0v-4.5z" clip-rule="evenodd" />
+                                    <path d="M16 16.5a.5.5 0 01-.5.5h-11a.5.5 0 010-1h11a.5.5 0 01.5.5zM15.5 7H4.5A1.5 1.5 0 003 8.5v8A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0015.5 7z" />
+                                </svg>
+                                加入購物車
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 購物車訊息提示 -->
+                    <div id="cart-message" class="mt-4 p-3 opacity-0 transition duration-500"></div>
+
+                </div>
+
+                <!-- 模擬顧客評價 -->
+                <div class="md:w-1/2 bg-white p-8 rounded-xl shadow-2xl border-t-8 border-farm-green">
+                    <h4 class="text-2xl font-bold mb-4 text-egg-yellow">顧客真心推薦</h4>
+                    <blockquote class="italic text-gray-700 leading-relaxed border-l-4 border-egg-yellow pl-4">
+                        「蛋黃真的很濃郁，煎起來香氣十足！小朋友吃了都說讚，感覺吃得很安心，支持在地校園農產品！」
+                    </blockquote>
+                    <p class="mt-4 text-sm font-semibold text-gray-600">- 王太太 (東海教職員家屬)</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 04. 食譜點子生成器 (Recipe Generator) -->
+    <section id="recipes" class="bg-white py-16 md:py-20">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h3 class="text-4xl font-extrabold text-center mb-4 text-gray-900">✨ 創意食譜點子</h3>
+            <p class="text-lg text-gray-600 text-center mb-8">輸入您家中的其他食材，讓 AI 為您量身打造美味的「東海雞蛋」料理！</p>
+            
+            <div class="bg-farm-green/10 p-6 rounded-xl shadow-xl">
+                <label for="recipe-ingredients" class="block text-lg font-medium text-gray-800 mb-2">您還有什麼食材？ (例如: 醬油、青蔥、吐司、番茄)</label>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <input type="text" id="recipe-ingredients" placeholder="輸入食材清單..." 
+                        class="flex-grow p-3 rounded-lg border-2 border-farm-green focus:ring-farm-green text-gray-800 shadow-md">
+                    <button id="recipe-button" onclick="generateRecipeIdeas()" 
+                            class="bg-egg-yellow hover:bg-yellow-500 text-gray-900 font-bold py-3 px-6 rounded-lg shadow-lg transition duration-300 transform hover:scale-[1.02] active:scale-100 min-w-[150px] flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M17.293 8.293a1 1 0 011.414 1.414l-8 8a1 1 0 01-1.414 0l-8-8a1 1 0 011.414-1.414L10 14.586l7.293-7.293z" />
+                        </svg>
+                        生成食譜
+                    </button>
+                </div>
+                
+                <!-- 載入中動畫 -->
+                <div id="recipe-loading" class="hidden text-center mt-6">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-farm-green inline-block"></div>
+                    <p class="text-farm-green mt-2">AI 料理大師正在思考中...</p>
+                </div>
+
+                <!-- 食譜結果區域 -->
+                <div id="recipe-results" class="mt-6 space-y-4">
+                    <!-- Results will be injected here -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 05. 聯絡與購買資訊 (Contact & Footer) -->
+    <footer id="contact" class="bg-gray-800 text-cream-white py-12 md:py-16">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h3 class="text-3xl font-bold mb-6 text-egg-yellow">如何購買或聯絡我們</h3>
+            <p class="text-lg mb-8 max-w-xl mx-auto">
+                東海雞蛋主要於校內特定通路販售，或洽詢實習農牧場。歡迎聯繫我們了解更多團購資訊。
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-left max-w-4xl mx-auto">
+                <!-- 聯絡方式 -->
+                <div class="p-4 bg-gray-700 rounded-lg shadow-inner">
+                    <p class="font-bold text-farm-green mb-1">電話</p>
+                    <p> (04) 2359-0121 #34000 (模擬)</p>
+                </div>
+                <!-- 電子郵件 -->
+                <div class="p-4 bg-gray-700 rounded-lg shadow-inner">
+                    <p class="font-bold text-farm-green mb-1">Email</p>
+                    <p>egg@thu.edu.tw (模擬)</p>
+                </div>
+                <!-- 購買地點 -->
+                <div class="p-4 bg-gray-700 rounded-lg shadow-inner">
+                    <p class="font-bold text-farm-green mb-1">主要購買地點</p>
+                    <p>東海大學校園福利社 / 實習農牧場門市</p>
+                </div>
+            </div>
+            
+            <!-- 版權資訊 -->
+            <div class="mt-12 pt-6 border-t border-gray-700">
+                <p class="text-sm text-gray-400">
+                    &copy; 2024 東海大學實習農牧場 版權所有。
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Script for Recipe Generator -->
+    <script>
+        async function generateRecipeIdeas() {
+            const ingredientsInput = document.getElementById('recipe-ingredients');
+            const resultsDiv = document.getElementById('recipe-results');
+            const loadingDiv = document.getElementById('recipe-loading');
+            const button = document.getElementById('recipe-button');
+            const userIngredients = ingredientsInput.value.trim();
+
+            if (!userIngredients) {
+                resultsDiv.innerHTML = '<p class="text-red-500">請輸入您擁有的食材，例如：醬油、青蔥。</p>';
+                return;
+            }
+
+            resultsDiv.innerHTML = '';
+            loadingDiv.classList.remove('hidden');
+            button.disabled = true;
+
+            const systemPrompt = "你是一位專門為台灣家庭設計食譜的專業廚師。你的任務是根據用戶提供的食材，以『東海雞蛋』為主要材料，設計3個創意且實用的食譜。食譜名稱必須是繁體中文。食譜應清晰列出所有步驟。";
+            const userQuery = `我目前有的食材有：${userIngredients}。請為我設計3個以東海雞蛋為主的食譜。`;
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${RECIPE_MODEL}:generateContent?key=${apiKey}`;
+
+            // Define the JSON structure for the response
+            const responseSchema = {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        "recipeName": { "type": "STRING", description: "食譜的創意名稱" },
+                        "description": { "type": "STRING", description: "食譜的簡短介紹" },
+                        "ingredients": {
+                            "type": "ARRAY",
+                            "items": { "type": "STRING" },
+                            description: "食譜所需材料清單"
+                        },
+                        "steps": {
+                            "type": "ARRAY",
+                            "items": { "type": "STRING" },
+                            description: "食譜的詳細步驟說明"
+                        }
+                    }
+                }
+            };
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: responseSchema
+                },
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API returned status ${response.status}`);
+                }
+
+                const result = await response.json();
+                const jsonText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (!jsonText) {
+                    throw new Error("未能從 AI 獲取有效的 JSON 食譜。");
+                }
+                
+                const recipes = JSON.parse(jsonText);
+                let htmlContent = '';
+
+                recipes.forEach((recipe, index) => {
+                    // Start Card for Recipe
+                    htmlContent += `
+                        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 ${index % 2 === 0 ? 'border-egg-yellow' : 'border-farm-green'}">
+                            <h4 class="text-xl font-bold text-gray-900 mb-2">${index + 1}. ${recipe.recipeName}</h4>
+                            <p class="text-gray-600 italic mb-4">${recipe.description}</p>
+                            
+                            <!-- Ingredients -->
+                            <div class="mb-4">
+                                <p class="font-semibold text-farm-green">🍳 主要材料:</p>
+                                <ul class="list-disc list-inside text-sm text-gray-700 ml-4">
+                                    ${recipe.ingredients.map(ing => `<li>${ing}</li>`).join('')}
+                                </ul>
+                            </div>
+                            
+                            <!-- Steps -->
+                            <div>
+                                <p class="font-semibold text-farm-green">📝 料理步驟:</p>
+                                <ol class="list-decimal list-inside text-sm text-gray-700 ml-4 space-y-1">
+                                    ${recipe.steps.map(step => `<li>${step}</li>`).join('')}
+                                </ol>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                resultsDiv.innerHTML = htmlContent;
+
+            } catch (error) {
+                console.error("食譜生成錯誤:", error);
+                resultsDiv.innerHTML = `<p class="text-red-500">食譜生成失敗。請檢查您的連線或稍後再試。 (${error.message})</p>`;
+            } finally {
+                loadingDiv.classList.add('hidden');
+                button.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
